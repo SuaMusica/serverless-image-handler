@@ -47,7 +47,9 @@ class ImageHandler {
             edits.resize.fit = 'inside';
         }
 
-        const image = sharp(originalImage, { failOnError: false });
+        const image = sharp(originalImage, {
+            failOnError: false
+        });
         const metadata = await image.metadata();
         const keys = Object.keys(edits);
         const values = Object.values(edits);
@@ -60,14 +62,26 @@ class ImageHandler {
                 let imageMetadata = metadata;
                 if (edits.resize) {
                     let imageBuffer = await image.toBuffer();
-                    imageMetadata = await sharp(imageBuffer).resize({ edits: { resize: edits.resize }}).metadata();
+                    imageMetadata = await sharp(imageBuffer).resize({
+                        edits: {
+                            resize: edits.resize
+                        }
+                    }).metadata();
                 }
 
-                const { bucket, key, wRatio, hRatio, alpha } = value;
+                const {
+                    bucket,
+                    key,
+                    wRatio,
+                    hRatio,
+                    alpha
+                } = value;
                 const overlay = await this.getOverlayImage(bucket, key, wRatio, hRatio, alpha, imageMetadata);
                 const overlayMetadata = await sharp(overlay).metadata();
 
-                let { options } = value;
+                let {
+                    options
+                } = value;
                 if (options) {
                     if (options.left) {
                         let left = options.left;
@@ -105,7 +119,10 @@ class ImageHandler {
                     }
                 }
 
-                const params = [{ ...options, input: overlay }];
+                const params = [{
+                    ...options,
+                    input: overlay
+                }];
                 image.composite(params);
             } else if (key === 'smartCrop') {
                 const options = value;
@@ -137,9 +154,15 @@ class ImageHandler {
      */
     async getOverlayImage(bucket, key, wRatio, hRatio, alpha, sourceImageMetadata) {
         const s3 = new AWS.S3();
-        const params = { Bucket: bucket, Key: key };
+        const params = {
+            Bucket: bucket,
+            Key: key
+        };
         try {
-            const { width, height } = sourceImageMetadata;
+            const {
+                width,
+                height
+            } = sourceImageMetadata;
             const overlayImage = await s3.getObject(params).promise();
             let resize = {
                 fit: 'inside'
@@ -195,10 +218,10 @@ class ImageHandler {
         const padding = (options.padding !== undefined) ? parseFloat(options.padding) : 0;
         // Calculate the smart crop area
         const cropArea = {
-            left : parseInt((boundingBox.Left*metadata.width)-padding),
-            top : parseInt((boundingBox.Top*metadata.height)-padding),
-            width : parseInt((boundingBox.Width*metadata.width)+(padding*2)),
-            height : parseInt((boundingBox.Height*metadata.height)+(padding*2)),
+            left: parseInt((boundingBox.Left * metadata.width) - padding),
+            top: parseInt((boundingBox.Top * metadata.height) - padding),
+            width: parseInt((boundingBox.Width * metadata.width) + (padding * 2)),
+            height: parseInt((boundingBox.Height * metadata.height) + (padding * 2)),
         }
         // Return the crop area
         return cropArea;
@@ -212,7 +235,11 @@ class ImageHandler {
      */
     async getBoundingBox(imageBuffer, faceIndex) {
         const rekognition = new AWS.Rekognition();
-        const params = { Image: { Bytes: imageBuffer }};
+        const params = {
+            Image: {
+                Bytes: imageBuffer
+            }
+        };
         const faceIdx = (faceIndex !== undefined) ? faceIndex : 0;
         try {
             const response = await rekognition.detectFaces(params).promise();

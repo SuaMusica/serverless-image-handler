@@ -23,6 +23,7 @@ class ImageRequest {
     async setup(event) {
         try {
             this.requestType = this.parseRequestType(event);
+            this.allowed = this.verifySecurityHash(event, this.requestType);
             this.bucket = this.parseImageBucket(event, this.requestType);
             this.key = this.parseImageKey(event, this.requestType);
             this.edits = this.parseImageEdits(event, this.requestType);
@@ -71,7 +72,11 @@ class ImageRequest {
     async getOriginalImage(bucket, key) {
         const S3 = require('aws-sdk/clients/s3');
         const s3 = new S3();
-        const imageLocation = { Bucket: bucket, Key: key };
+        const imageLocation = {
+            Bucket: bucket,
+            Key: key
+        };
+        console.log(imageLocation);
         try {
             const originalImage = await s3.getObject(imageLocation).promise();
 
@@ -96,7 +101,7 @@ class ImageRequest {
             }
 
             return Promise.resolve(originalImage.Body);
-        } catch(err) {
+        } catch (err) {
             return Promise.reject({
                 status: ('NoSuchKey' === err.code) ? 404 : 500,
                 code: err.code,
@@ -186,7 +191,12 @@ class ImageRequest {
         }
 
         if (requestType === "Thumbor" || requestType === "Custom") {
-            return decodeURIComponent(event["path"].replace(/\d+x\d+\/|filters[:-][^/;]+|\/fit-in\/+|^\/+/g,'').replace(/^\/+/,''));
+            let path = event["path"].replace("/v2/", "/");
+            let security_key = process.env.SECURITY_KEY;
+            if (security_key !== "") {
+                path = this.removeSecurityKeyFromPath(path);
+            }
+            return decodeURIComponent(path.replace(/\d+x\d+:\d+x\d+\/|\d+x\d+\/|filters[:-][^/;]+|\/fit-in\/+|^\/+/g, '').replace(/^\/+/, ''));
         }
 
         // Return an error for all other conditions
@@ -198,14 +208,59 @@ class ImageRequest {
     }
 
     /**
+     * verifies that the security hash sent in the path is valid
+     * @param {Object} event - The request body.
+     * @param {String} security_key - The security key from environment variable.*     
+     */
+    verifySecurityHash(event, requestType) {
+        var crypto = require('crypto');
+        let security_key = process.env.SECURITY_KEY;
+        if (security_key === "") return true;
+        var securityHash, hash;
+        if (requestType === "Default") {
+            const decoded = this.decodeRequest(event);
+            if (decoded.hash !== undefined) {
+                securityHash = decoded.hash;
+                delete decoded.hash;
+                hash = crypto.createHmac('sha1', security_key).update(JSON.stringify(decoded)).digest('base64').replace(/\+/g, "-").replace(/\//g, "_");
+            } else {
+                throw ({
+                    status: 403,
+                    code: 'ThumborMapping::VerifySecurityHash::InvalidSecurityHash',
+                    message: 'Invalid Hash.'
+                })
+            }
+        } else {
+            let path = event['path'].replace("/v2/", "/");
+            const pathParts = path.split('/');
+            securityHash = pathParts[1];
+            path = this.removeSecurityKeyFromPath(path);
+            hash = crypto.createHmac('sha1', security_key).update(path).digest('base64').replace(/\+/g, "-").replace(/\//g, "_");
+        }
+        if (securityHash !== hash) {
+            throw ({
+                status: 403,
+                code: 'ThumborMapping::VerifySecurityHash::InvalidSecurityHash',
+                message: 'Invalid Hash.'
+            })
+        }
+        return true;
+    }
+    removeSecurityKeyFromPath(path) {
+        const pathParts = path.split('/');
+        var securityHash = pathParts[1];
+        return path.replace('/' + securityHash + '/', '');
+    }
+
+    /**
      * Determines how to handle the request being made based on the URL path
      * prefix to the image request. Categorizes a request as either "image"
      * (uses the Sharp library), "thumbor" (uses Thumbor mapping), or "custom"
      * (uses the rewrite function).
      * @param {Object} event - Lambda request body.
-    */
+     */
     parseRequestType(event) {
-        const path = event["path"];
+        const path = event["path"].replace("/v2/", "/");
         // ----
         const matchDefault = new RegExp(/^(\/?)([0-9a-zA-Z+\/]{4})*(([0-9a-zA-Z+\/]{2}==)|([0-9a-zA-Z+\/]{3}=))?$/);
         const matchThumbor = new RegExp(/^(\/?)((fit-in)?|(filters:.+\(.?\))?|(unsafe)?).*(.+jpg|.+png|.+webp|.+tiff|.+jpeg)$/i);
@@ -217,11 +272,11 @@ class ImageRequest {
             (process.env.REWRITE_SUBSTITUTION !== undefined)
         );
         // ----
-        if (matchDefault.test(path)) {  // use sharp
+        if (matchDefault.test(path)) { // use sharp
             return 'Default';
-        } else if (matchCustom.test(path) && definedEnvironmentVariables) {  // use rewrite function then thumbor mappings
+        } else if (matchCustom.test(path) && definedEnvironmentVariables) { // use rewrite function then thumbor mappings
             return 'Custom';
-        } else if (matchThumbor.test(path)) {  // use thumbor mappings
+        } else if (matchThumbor.test(path)) { // use thumbor mappings
             return 'Thumbor';
         } else {
             throw {
@@ -238,7 +293,7 @@ class ImageRequest {
      * @param {Object} event - The proxied request object.
      */
     decodeRequest(event) {
-        const path = event["path"];
+        const path = event["path"].replace("/v2/", "/");
         if (path !== undefined) {
             const splitPath = path.split("/");
             const encoded = splitPath[splitPath.length - 1];
@@ -283,9 +338,9 @@ class ImageRequest {
     }
 
     /**
-    * Return the output format depending on the accepts headers and request type
-    * @param {Object} event - The request body.
-    */
+     * Return the output format depending on the accepts headers and request type
+     * @param {Object} event - The request body.
+     */
     getOutputFormat(event) {
         const autoWebP = process.env.AUTO_WEBP;
         if (autoWebP && event.headers.Accept && event.headers.Accept.includes('image/webp')) {
