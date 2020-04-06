@@ -76,7 +76,6 @@ class ImageRequest {
             Bucket: bucket,
             Key: key
         };
-        console.log(imageLocation);
         try {
             const originalImage = await s3.getObject(imageLocation).promise();
 

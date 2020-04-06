@@ -15,32 +15,29 @@ const ImageRequest = require('./image-request.js');
 const ImageHandler = require('./image-handler.js');
 
 exports.handler = async (event) => {
-    console.log(event);
+    console.log(event["path"]);
     const imageRequest = new ImageRequest();
     const imageHandler = new ImageHandler();
     try {
         const request = await imageRequest.setup(event);
-        console.log(request);
         const processedRequest = await imageHandler.process(request);
-
         const headers = getResponseHeaders();
         headers["Content-Type"] = request.ContentType;
         headers["Expires"] = request.Expires;
         headers["Last-Modified"] = request.LastModified;
         headers["Cache-Control"] = request.CacheControl;
-
         return {
             "statusCode": 200,
-            "headers" : headers,
+            "isBase64Encoded": true,
+            "headers": headers,
             "body": processedRequest,
-            "isBase64Encoded": true
-        };
+        }
     } catch (err) {
         console.log(err);
 
         return {
             "statusCode": err.status,
-            "headers" : getResponseHeaders(true),
+            "headers": getResponseHeaders(true),
             "body": JSON.stringify(err),
             "isBase64Encoded": false
         };
@@ -57,7 +54,6 @@ const getResponseHeaders = (isErr) => {
     const headers = {
         "Access-Control-Allow-Methods": "GET",
         "Access-Control-Allow-Headers": "Content-Type, Authorization",
-        "Access-Control-Allow-Credentials": true
     }
     if (corsEnabled) {
         headers["Access-Control-Allow-Origin"] = process.env.CORS_ORIGIN;
