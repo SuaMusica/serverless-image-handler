@@ -257,7 +257,7 @@ class ImageRequest {
 
         if (requestType === "Thumbor" || requestType === "Custom") {
             let path = this.isSecurityEnabled() ? this.removeSecurityKeyFromPath(event) : event["path"];
-            return decodeURIComponent(path.replace(/\d+x\d+\/|filters[:-][^/;]+|\/fit-in\/+|^\/+/g, '').replace(/^\/+/, ''));
+            return decodeURIComponent(path.replace(/\d+x\d+:\d+x\d+\/|\d+x\d+\/|filters[:-][^/;]+|\/fit-in\/+|^\/+/g, '').replace(/^\/+/, ''));
         }
 
         // Return an error for all other conditions
