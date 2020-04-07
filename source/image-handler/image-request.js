@@ -185,6 +185,7 @@ class ImageRequest {
         if (!this.isSecurityEnabled()) {
             return true;
         }
+        let security_key = process.env.SECURITY_KEY;
         var crypto = require('crypto');
         var securityHash, hash;
         if (requestType === "Default") {
@@ -202,7 +203,7 @@ class ImageRequest {
             }
         } else {
             securityHash = this.getSecurityHash(event);
-            let path = this.removeSecurityKeyFromPath(event['path']);
+            let path = this.removeSecurityKeyFromPath(event);
             hash = crypto.createHmac('sha1', security_key).update(path).digest('base64').replace(/\+/g, "-").replace(/\//g, "_");
         }
         if (securityHash !== hash) {
@@ -255,7 +256,7 @@ class ImageRequest {
         }
 
         if (requestType === "Thumbor" || requestType === "Custom") {
-            let path = this.isSecurityEnabled() ? this.removeSecurityKeyFromPath(event["path"]) : event["path"];
+            let path = this.isSecurityEnabled() ? this.removeSecurityKeyFromPath(event) : event["path"];
             return decodeURIComponent(path.replace(/\d+x\d+\/|filters[:-][^/;]+|\/fit-in\/+|^\/+/g, '').replace(/^\/+/, ''));
         }
 
