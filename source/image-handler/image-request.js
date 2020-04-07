@@ -23,6 +23,7 @@ class ImageRequest {
     async setup(event) {
         try {
             this.requestType = this.parseRequestType(event);
+            this.allowed = this.verifySecurityHash(event, this.requestType);
             this.bucket = this.parseImageBucket(event, this.requestType);
             this.key = this.parseImageKey(event, this.requestType);
             this.edits = this.parseImageEdits(event, this.requestType);
@@ -71,7 +72,10 @@ class ImageRequest {
     async getOriginalImage(bucket, key) {
         const S3 = require('aws-sdk/clients/s3');
         const s3 = new S3();
-        const imageLocation = { Bucket: bucket, Key: key };
+        const imageLocation = {
+            Bucket: bucket,
+            Key: key
+        };
         try {
             const originalImage = await s3.getObject(imageLocation).promise();
 
@@ -96,7 +100,7 @@ class ImageRequest {
             }
 
             return Promise.resolve(originalImage.Body);
-        } catch(err) {
+        } catch (err) {
             return Promise.reject({
                 status: ('NoSuchKey' === err.code) ? 404 : 500,
                 code: err.code,
@@ -173,6 +177,71 @@ class ImageRequest {
     }
 
     /**
+     * verifies that the security hash sent in the path is valid
+     * @param {Object} event - The request body.
+     * @param {String} security_key - The security key from environment variable.*     
+     */
+    verifySecurityHash(event, requestType) {
+        if (!this.isSecurityEnabled()) {
+            return true;
+        }
+        var crypto = require('crypto');
+        var securityHash, hash;
+        if (requestType === "Default") {
+            const decoded = this.decodeRequest(event);
+            if (decoded.hash !== undefined) {
+                securityHash = decoded.hash;
+                delete decoded.hash;
+                hash = crypto.createHmac('sha1', security_key).update(JSON.stringify(decoded)).digest('base64').replace(/\+/g, "-").replace(/\//g, "_");
+            } else {
+                throw ({
+                    status: 403,
+                    code: 'ThumborMapping::VerifySecurityHash::InvalidSecurityHash',
+                    message: 'Invalid Hash.'
+                })
+            }
+        } else {
+            securityHash = this.getSecurityHash(event);
+            let path = this.removeSecurityKeyFromPath(event['path']);
+            hash = crypto.createHmac('sha1', security_key).update(path).digest('base64').replace(/\+/g, "-").replace(/\//g, "_");
+        }
+        if (securityHash !== hash) {
+            throw ({
+                status: 403,
+                code: 'ThumborMapping::VerifySecurityHash::InvalidSecurityHash',
+                message: 'Invalid Hash.'
+            })
+        }
+        return true;
+    }
+
+    /**
+     * Checks if Secure URL tampering encoding is Enabled
+     */
+    isSecurityEnabled() {
+        return (process.env.SECURITY_KEY !== "" && process.env.SECURITY_KEY !== undefined);
+    }
+
+    /**
+     * Remove the Security Key from the Old Thumbor Path
+     * @param {String} event - Lambda request body.
+     */
+    removeSecurityKeyFromPath(event) {
+        let securityHash = this.getSecurityHash(event);
+        return event["path"].replace(`/${securityHash}/`, '');
+    }
+
+    /**
+     * Retrieves the Security Key from the Old Thumbor Path
+     * @param {String} event - Lambda request body.
+     */
+    getSecurityHash(event) {
+        const path = event["path"];
+        const pathParts = path.split('/');
+        return pathParts[1];
+    }
+
+    /**
      * Parses the name of the appropriate Amazon S3 key corresponding to the
      * original image.
      * @param {String} event - Lambda request body.
@@ -186,7 +255,8 @@ class ImageRequest {
         }
 
         if (requestType === "Thumbor" || requestType === "Custom") {
-            return decodeURIComponent(event["path"].replace(/\d+x\d+\/|filters[:-][^/;]+|\/fit-in\/+|^\/+/g,'').replace(/^\/+/,''));
+            let path = this.isSecurityEnabled() ? this.removeSecurityKeyFromPath(event["path"]) : event["path"];
+            return decodeURIComponent(path.replace(/\d+x\d+\/|filters[:-][^/;]+|\/fit-in\/+|^\/+/g, '').replace(/^\/+/, ''));
         }
 
         // Return an error for all other conditions
@@ -203,7 +273,7 @@ class ImageRequest {
      * (uses the Sharp library), "thumbor" (uses Thumbor mapping), or "custom"
      * (uses the rewrite function).
      * @param {Object} event - Lambda request body.
-    */
+     */
     parseRequestType(event) {
         const path = event["path"];
         // ----
@@ -217,11 +287,11 @@ class ImageRequest {
             (process.env.REWRITE_SUBSTITUTION !== undefined)
         );
         // ----
-        if (matchDefault.test(path)) {  // use sharp
+        if (matchDefault.test(path)) { // use sharp
             return 'Default';
-        } else if (matchCustom.test(path) && definedEnvironmentVariables) {  // use rewrite function then thumbor mappings
+        } else if (matchCustom.test(path) && definedEnvironmentVariables) { // use rewrite function then thumbor mappings
             return 'Custom';
-        } else if (matchThumbor.test(path)) {  // use thumbor mappings
+        } else if (matchThumbor.test(path)) { // use thumbor mappings
             return 'Thumbor';
         } else {
             throw {
@@ -283,9 +353,9 @@ class ImageRequest {
     }
 
     /**
-    * Return the output format depending on the accepts headers and request type
-    * @param {Object} event - The request body.
-    */
+     * Return the output format depending on the accepts headers and request type
+     * @param {Object} event - The request body.
+     */
     getOutputFormat(event) {
         const autoWebP = process.env.AUTO_WEBP;
         if (autoWebP && event.headers.Accept && event.headers.Accept.includes('image/webp')) {
